@@ -11,6 +11,9 @@ type RecoveredState struct {
 	Job            model.Job
 	Owner          string
 	ReleasedRanges []model.Interval
+	Seams          []model.SeamCertificate
+	SeamDeliveries []SeamDeliveryRecord
+	SeamDiscards   []SeamDiscardRecord
 	EventCount     int
 }
 
@@ -46,6 +49,26 @@ func Replay(events []model.Event) (RecoveredState, error) {
 			if record.Released {
 				state.ReleasedRanges = append(state.ReleasedRanges, record.Interval)
 			}
+		case "splice_seam_inspected":
+			record, err := model.DecodeEventPayload[SeamRecord](event)
+			if err != nil {
+				return RecoveredState{}, err
+			}
+			if record.Released {
+				state.Seams = append(state.Seams, record.Certificate)
+			}
+		case "splice_seam_delivered":
+			record, err := model.DecodeEventPayload[SeamDeliveryRecord](event)
+			if err != nil {
+				return RecoveredState{}, err
+			}
+			state.SeamDeliveries = append(state.SeamDeliveries, record)
+		case "splice_seam_discarded":
+			record, err := model.DecodeEventPayload[SeamDiscardRecord](event)
+			if err != nil {
+				return RecoveredState{}, err
+			}
+			state.SeamDiscards = append(state.SeamDiscards, record)
 		}
 	}
 	if state.EventCount > 0 && !state.Job.ID.Valid() {

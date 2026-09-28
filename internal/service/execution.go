@@ -63,6 +63,12 @@ func (runtime *Runtime) ExecuteOperation(ctx context.Context, kind string) error
 		return runtime.finishOutputOperation(current)
 	case "start_splice":
 		return runtime.spliceOperation(ctx, current)
+	case "inspect_splice":
+		return runtime.inspectSpliceOperation(current)
+	case "reinspect_splice":
+		return runtime.reinspectSpliceOperation(current)
+	case "discard_seam_segments":
+		return runtime.discardSeamSegmentsOperation(current)
 	case "recover":
 		return runtime.recoveryOperation(current)
 	case "diagnostics":
@@ -268,13 +274,19 @@ func (runtime *Runtime) releaseOperation(current model.Job) error {
 }
 
 func (runtime *Runtime) finishOutputOperation(current model.Job) error {
-	if err := runtime.folderControl.Prepare(8, 630); err != nil {
+	if err := runtime.folderControl.Prepare(8, cutLengthM*1000); err != nil {
 		return err
 	}
 	if err := runtime.folderControl.Finish(); err != nil {
 		return err
 	}
-	output, err := folder.BuildOutput(current, 500, time.Now())
+	// The lot is not releasable while its meter window overlaps condemned
+	// splice paper that has not been physically cut out.
+	cleared, blocked := runtime.seamGate.ClearLot(current, lotWindow())
+	if !cleared {
+		return fmt.Errorf("finish blocked: lot window %v overlaps condemned splice segments %v that must be discarded", lotWindow(), blocked)
+	}
+	output, err := folder.BuildOutput(current, sheetsPerLot, runtime.seamGate.RejectedRanges(current), runtime.seamGate.InspectedSeams(current), time.Now())
 	if err != nil {
 		return err
 	}
@@ -318,13 +330,31 @@ func (runtime *Runtime) recoveryOperation(current model.Job) error {
 	if _, err := runtimeLoadSnapshot(runtime.config.DataDir); err != nil {
 		return err
 	}
-	recovered := journal.RecoveredState{Job: current, Owner: string(current.ID)}
+	events, err := runtime.journal.Events()
+	if err != nil {
+		return err
+	}
+	recovered, err := journal.Replay(events)
+	if err != nil {
+		return err
+	}
+	if !recovered.Job.ID.Valid() {
+		recovered.Job = current
+	}
+	if recovered.Owner == "" {
+		recovered.Owner = string(current.ID)
+	}
 	decision, err := job.DecideRecovery(recovered)
 	if err != nil {
 		return err
 	}
 	recoveredJobs := job.NewState()
 	if err := job.RestoreState(recoveredJobs, decision); err != nil {
+		return err
+	}
+	// Reinspection history and every condemned segment are rebuilt from the
+	// journal; old conclusions are never overwritten.
+	if err := runtime.RestoreSeamEvidence(recovered); err != nil {
 		return err
 	}
 	if _, err := runtime.RecoverFeed(recovered, 5); err != nil {

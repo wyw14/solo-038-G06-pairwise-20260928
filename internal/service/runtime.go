@@ -55,6 +55,9 @@ type Runtime struct {
 	folderControl   *folder.Controller
 	splice          *splice.State
 	spliceControl   *splice.Coordinator
+	seamLedger      *splice.InspectionLedger
+	seamRouter      *splice.SeamRouter
+	seamGate        *folder.QualityGate
 	incidents       []Incident
 }
 
@@ -80,10 +83,17 @@ func NewRuntime(config Config) (*Runtime, error) {
 	registerState := register.NewState()
 	folderState := folder.NewState()
 	spliceState := splice.NewState()
+	seamRouter, err := splice.NewSeamRouter(splice.ProductionRoute)
+	if err != nil {
+		return nil, err
+	}
 	festoon := unwind.NewFestoon(config.FestoonCapacity)
 	runtime := &Runtime{startedAt: time.Now().UTC(), config: config, journal: journalStore, jobs: jobState, jobControl: job.NewCoordinator(jobState, dryerState), sensors: sensor.NewState(), unwind: unwindState, loader: unwind.NewLoader(unwindState), festoon: festoon, web: webState, webControl: web.NewCoordinator(webState, path), press: pressState, pressUnits: pressController, pressControl: press.NewCoordinator(pressController, pressState), phase: press.NewPhaseController(pressState, 2.5), ink: inkState, register: registerState, registerControl: register.NewCoordinator(registerState, journalStore), dryer: dryerState, dryerControl: dryer.NewCoordinator(dryerState), folder: folderState, folderControl: folder.NewController(folderState), splice: spliceState}
 	runtime.inkControl = ink.NewCoordinator(ink.NewCircuit(inkState))
 	runtime.spliceControl = splice.NewCoordinator(spliceState, festoon, splice.NewLeaseManager())
+	runtime.seamLedger = splice.NewInspectionLedger()
+	runtime.seamRouter = seamRouter
+	runtime.seamGate = folder.NewQualityGate()
 	return runtime, nil
 }
 
@@ -100,6 +110,9 @@ func (runtime *Runtime) Start(ctx context.Context) error {
 		created.RollGeneration = 1
 		created.PlateGeneration = 1
 		if err := runtime.jobs.Put(created); err != nil {
+			return err
+		}
+		if _, err := journal.PersistJobSnapshot(runtime.journal, created, model.NewOperationID(), time.Now().UTC()); err != nil {
 			return err
 		}
 	}
