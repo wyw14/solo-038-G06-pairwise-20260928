@@ -268,13 +268,20 @@ func (runtime *Runtime) releaseOperation(current model.Job) error {
 }
 
 func (runtime *Runtime) finishOutputOperation(current model.Job) error {
-	if err := runtime.folderControl.Prepare(8, 630); err != nil {
+	speed, cutLength := 8.0, 630.0
+	if err := runtime.folderControl.Prepare(speed, cutLength); err != nil {
+		return err
+	}
+	sheets := 500
+	// 成品批米段按切长×张数折算，末端对齐当前纸路米位；
+	// 必须剔除的接缝纸段到达成品段时，闸门拒绝放行。
+	if err := runtime.admitFinishedLot(current, sheets, cutLength); err != nil {
 		return err
 	}
 	if err := runtime.folderControl.Finish(); err != nil {
 		return err
 	}
-	output, err := folder.BuildOutput(current, 500, time.Now())
+	output, err := folder.BuildOutput(current, sheets, time.Now())
 	if err != nil {
 		return err
 	}
@@ -282,6 +289,17 @@ func (runtime *Runtime) finishOutputOperation(current model.Job) error {
 		return fmt.Errorf("folder output generation mismatch")
 	}
 	return nil
+}
+
+// admitFinishedLot 用成品段接缝闸门校验刚折页完成的纸批。
+func (runtime *Runtime) admitFinishedLot(current model.Job, sheets int, cutLengthMM float64) error {
+	_, _, _, _, meter := runtime.web.Snapshot()
+	lotLength := float64(sheets) * cutLengthMM / 1000.0
+	start := meter - lotLength
+	if start < 0 {
+		start = 0
+	}
+	return runtime.spliceGate.Admit(current, model.MeterRange{Start: start, End: meter}, time.Now())
 }
 
 func (runtime *Runtime) spliceOperation(ctx context.Context, current model.Job) error {
@@ -328,6 +346,9 @@ func (runtime *Runtime) recoveryOperation(current model.Job) error {
 		return err
 	}
 	if _, err := runtime.RecoverFeed(recovered, 5); err != nil {
+		return err
+	}
+	if _, err := runtime.RecoverSpliceInspections(); err != nil {
 		return err
 	}
 	_ = web.Capture(runtime.web)

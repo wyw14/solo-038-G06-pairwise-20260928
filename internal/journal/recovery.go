@@ -8,10 +8,11 @@ import (
 )
 
 type RecoveredState struct {
-	Job            model.Job
-	Owner          string
-	ReleasedRanges []model.Interval
-	EventCount     int
+	Job             model.Job
+	Owner           string
+	ReleasedRanges  []model.Interval
+	SeamInspections []SeamInspectionRecord
+	EventCount      int
 }
 
 func Replay(events []model.Event) (RecoveredState, error) {
@@ -46,6 +47,12 @@ func Replay(events []model.Event) (RecoveredState, error) {
 			if record.Released {
 				state.ReleasedRanges = append(state.ReleasedRanges, record.Interval)
 			}
+		case "splice_seam_inspected":
+			record, err := model.DecodeEventPayload[SeamInspectionRecord](event)
+			if err != nil {
+				return RecoveredState{}, err
+			}
+			state.SeamInspections = append(state.SeamInspections, record)
 		}
 	}
 	if state.EventCount > 0 && !state.Job.ID.Valid() {

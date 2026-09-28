@@ -29,33 +29,36 @@ type Config struct {
 }
 
 type Runtime struct {
-	mu              sync.RWMutex
-	startedAt       time.Time
-	config          Config
-	journal         *journal.Store
-	jobs            *job.State
-	jobControl      *job.Coordinator
-	sensors         *sensor.State
-	unwind          *unwind.State
-	loader          *unwind.Loader
-	festoon         *unwind.Festoon
-	web             *web.State
-	webControl      *web.Coordinator
-	press           *press.State
-	pressUnits      *press.Controller
-	pressControl    *press.Coordinator
-	phase           *press.PhaseController
-	ink             *ink.State
-	inkControl      *ink.Coordinator
-	register        *register.State
-	registerControl *register.Coordinator
-	dryer           *dryer.State
-	dryerControl    *dryer.Coordinator
-	folder          *folder.State
-	folderControl   *folder.Controller
-	splice          *splice.State
-	spliceControl   *splice.Coordinator
-	incidents       []Incident
+	mu                sync.RWMutex
+	startedAt         time.Time
+	config            Config
+	journal           *journal.Store
+	jobs              *job.State
+	jobControl        *job.Coordinator
+	sensors           *sensor.State
+	unwind            *unwind.State
+	loader            *unwind.Loader
+	festoon           *unwind.Festoon
+	web               *web.State
+	webControl        *web.Coordinator
+	press             *press.State
+	pressUnits        *press.Controller
+	pressControl      *press.Coordinator
+	phase             *press.PhaseController
+	ink               *ink.State
+	inkControl        *ink.Coordinator
+	register          *register.State
+	registerControl   *register.Coordinator
+	dryer             *dryer.State
+	dryerControl      *dryer.Coordinator
+	folder            *folder.State
+	folderControl     *folder.Controller
+	splice            *splice.State
+	spliceControl     *splice.Coordinator
+	spliceInspections *splice.Registry
+	paperTrail        *web.PaperTrail
+	spliceGate        *folder.Gate
+	incidents         []Incident
 }
 
 func NewRuntime(config Config) (*Runtime, error) {
@@ -81,9 +84,10 @@ func NewRuntime(config Config) (*Runtime, error) {
 	folderState := folder.NewState()
 	spliceState := splice.NewState()
 	festoon := unwind.NewFestoon(config.FestoonCapacity)
-	runtime := &Runtime{startedAt: time.Now().UTC(), config: config, journal: journalStore, jobs: jobState, jobControl: job.NewCoordinator(jobState, dryerState), sensors: sensor.NewState(), unwind: unwindState, loader: unwind.NewLoader(unwindState), festoon: festoon, web: webState, webControl: web.NewCoordinator(webState, path), press: pressState, pressUnits: pressController, pressControl: press.NewCoordinator(pressController, pressState), phase: press.NewPhaseController(pressState, 2.5), ink: inkState, register: registerState, registerControl: register.NewCoordinator(registerState, journalStore), dryer: dryerState, dryerControl: dryer.NewCoordinator(dryerState), folder: folderState, folderControl: folder.NewController(folderState), splice: spliceState}
+	runtime := &Runtime{startedAt: time.Now().UTC(), config: config, journal: journalStore, jobs: jobState, jobControl: job.NewCoordinator(jobState, dryerState), sensors: sensor.NewState(), unwind: unwindState, loader: unwind.NewLoader(unwindState), festoon: festoon, web: webState, webControl: web.NewCoordinator(webState, path), press: pressState, pressUnits: pressController, pressControl: press.NewCoordinator(pressController, pressState), phase: press.NewPhaseController(pressState, 2.5), ink: inkState, register: registerState, registerControl: register.NewCoordinator(registerState, journalStore), dryer: dryerState, dryerControl: dryer.NewCoordinator(dryerState), folder: folderState, folderControl: folder.NewController(folderState), splice: spliceState, paperTrail: web.NewPaperTrail(), spliceGate: folder.NewGate()}
 	runtime.inkControl = ink.NewCoordinator(ink.NewCircuit(inkState))
 	runtime.spliceControl = splice.NewCoordinator(spliceState, festoon, splice.NewLeaseManager())
+	runtime.spliceInspections = splice.NewRegistry(journalStore)
 	return runtime, nil
 }
 

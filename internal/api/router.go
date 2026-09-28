@@ -25,6 +25,8 @@ func NewRouter(runtime *service.Runtime) http.Handler {
 		api.Get("/incidents", handler.incidents)
 		api.Get("/recovery", handler.recoveryStatus)
 		api.Post("/jobs/current/cancel", handler.cancelCurrent)
+		api.Get("/splices/inspections", handler.spliceInspectionStatus)
+		api.Post("/splices/inspections", handler.inspectSplice)
 	})
 	return router
 }
